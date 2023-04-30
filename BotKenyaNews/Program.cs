@@ -7,6 +7,9 @@ using Telegram.Bot.Requests;
 using BotKenyaNews.Helpers;
 using BotKenyaNews.BotSettings;
 using BotKenyaNews.RssController;
+using System.Collections.Generic;
+using System.Threading;
+using BotKenyaNews.Models;
 
 namespace BotKenyaNews
 {
@@ -15,140 +18,84 @@ namespace BotKenyaNews
         static int lastUpdateId = 0;
         static ITelegramBotClient bot = new TelegramBotClient(JsonReader.GetValues().telegramApiToken);
         private static Dictionary<long, DateTime> LastActiveUser = new Dictionary<long, DateTime>();
+        private static Dictionary<long, UserState> UserStates = new Dictionary<long, UserState>();
+
+        //Добавить больше value для List<> по теме что за сайт , какой раздел и это надо передать в RssFeedsDriver
+        private static Dictionary<long, UserChoice> userChoices = new Dictionary<long, UserChoice>();
+        public static Message message = null;
+        public static long chatId = 0;
+
+        public class UserState
+        {
+            public string NewsSection { get; set; }
+            public string TimePeriod { get; set; }
+        }
 
         public static async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
         {
             try
             {
-                // Некоторые действия
                 Console.WriteLine(Newtonsoft.Json.JsonConvert.SerializeObject(update));
 
                 if (update.Type == Telegram.Bot.Types.Enums.UpdateType.Message)
                 {
-                    var message = update.Message;
-                    string userName = string.Empty;
+                    message = update.Message;
+                    chatId = message.Chat.Id;
 
-                    if (!string.IsNullOrEmpty(message.Chat.FirstName))
+                    if (message.Text == "/start")
                     {
-                        userName = message.Chat.FirstName;
-                    }
-                    else if (!string.IsNullOrEmpty(message.Chat.LastName))
-                    {
-                        userName = message.Chat.LastName;
-                    }
-                    else if (!string.IsNullOrEmpty(message.Chat.Username))
-                    {
-                        userName = message.Chat.Username;
-                    }
-                    else
-                    {
-                        userName = "Unknown";
-                    }
-
-
-                    if (message.Text.ToLower() == "/start")
-                    {
+                        string userName = message.From.FirstName;
                         string welcomeMessage = $"🌍✨ Welcome {userName} to our African news aggregator bot! ✨🌍\n\nWe gather the latest news from multiple sources across Africa, bringing you the most relevant and up-to-date information. 📰🌍\n\nPlease choose your preferred country or topic to get started: 🌟";
-
-                        //var sendingGif = await botClient.SendAnimationAsync(
-                        //    chatId: message.Chat.Id,
-                        //    animation: "https://media.giphy.com/media/Kbc5SZgO7re8/giphy.gif");
-
-                        var newsKeyboard = ReplyKeyboardTelegram.CreateNewsKeyboard();
+                        var sectionKeyboard = InlineKeyBoardSites.CreateNewsKeyboard();
                         await botClient.SendTextMessageAsync(
-                            chatId: message.Chat.Id,
+                            chatId: chatId,
                             text: welcomeMessage,
-                            replyMarkup: newsKeyboard);
+                            replyMarkup: sectionKeyboard);
                     }
-                    else
+                }
+                else if (update.Type == Telegram.Bot.Types.Enums.UpdateType.CallbackQuery)
+                {
+                    Console.WriteLine(update.CallbackQuery.Data);
+
+                    var categoryKeyboard = InlineKeyBoardCategory.CreateSectionKeyboard();
+                    RssFeedsDriver rssFeedsDriver = new RssFeedsDriver();
+
+                    if (update.CallbackQuery.Data.StartsWith("section_"))
                     {
-                        string newsMatrix = message.Text.Trim().ToLower();
-                        switch (newsMatrix)
-                        {
-                            case "africanews.com":
-                            case "news empty":
-                            case "news empty two":
-                                {
-                                    if (LastActiveUser.TryGetValue(message.Chat.Id, out DateTime ActiveUser))
-                                    {
-                                        if (DateTime.UtcNow.Date == ActiveUser.Date)
-                                        {
-                                            var sendingGifDanger = await botClient.SendAnimationAsync(
-                                            chatId: message.Chat.Id,
-                                            animation: "https://media.giphy.com/media/lXiRLb0xFzmreM8k8/giphy.gif");
+                        userChoices[chatId] = new UserChoice { Site = update.CallbackQuery.Data };
+                        await botClient.SendTextMessageAsync(
+                            chatId: chatId,
+                            text: "Choose category",
+                            replyMarkup: categoryKeyboard);
+                        Console.WriteLine($"{categoryKeyboard} is active category");
+                    }
+                    else if (update.CallbackQuery.Data.StartsWith("category_"))
+                    {
+                        string selectedCategory = update.CallbackQuery.Data.Substring("category_".Length);
+                        userChoices[chatId].Category = selectedCategory;
 
-                                            await botClient.SendTextMessageAsync(
-                                                chatId: message.Chat.Id,
-                                                text: $"The universe only answers you once a day, don't try to force it, dear {message.Chat.FirstName}.");
-                                            return;
-                                        }
-                                    }
+                        var sendingGif = await botClient.SendAnimationAsync(
+                                           chatId: message.Chat.Id,
+                                           animation: "https://media.giphy.com/media/lXiRLb0xFzmreM8k8/giphy.gif");
 
-                                    var sendingGif = await botClient.SendAnimationAsync(
-                                        chatId: message.Chat.Id,
-                                        animation: "https://media.giphy.com/media/lXiRLb0xFzmreM8k8/giphy.gif");
+                        List<Article> articles = await rssFeedsDriver.GetNews(userChoices[chatId].Site, userChoices[chatId].Category);
+                        var articleKeyboard = InlineKeyBoardArticles.CreateArticleKeyboard(articles);
 
-                                    try
-                                    {
-                                        // Generate the horoscope
-                                        //Make request to news
-                                        //var generatedHoroscope = await gptDriver.GenerateHoroscope(zodiacSign, false, userName);
-                                        RssFeedsDriver rssFeedsDriver = new RssFeedsDriver();
-                                        var rssRequest = await rssFeedsDriver.GetNews();
+                        await botClient.SendTextMessageAsync(
+                           chatId: chatId,
+                           text: "Here are the latest articles:",
+                           replyMarkup: articleKeyboard);
 
-                                        string textNews = rssRequest;
-                                        await botClient.DeleteMessageAsync(
-                                              chatId: sendingGif.Chat.Id,
-                                              messageId: sendingGif.MessageId);
+                        await botClient.DeleteMessageAsync(
+                                       chatId: sendingGif.Chat.Id,
+                                       messageId: sendingGif.MessageId);
 
-                                        // Send the horoscope
-                                        await botClient.SendTextMessageAsync(
-                                            chatId: message.Chat.Id,
-                                            text: textNews);
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        Console.WriteLine("Error generating horoscope: " + ex.ToString());
-                                        await botClient.SendTextMessageAsync(
-                                            chatId: message.Chat.Id,
-                                            text: "Sorry, we encountered an error generating your horoscope. Please try again later.");
 
-                                    }
+                        Console.WriteLine($"Is choice article - {articleKeyboard}");
+                        //string selectedArticleUrl = update.CallbackQuery.Data.Substring("article_".Length);
+                        //Console.WriteLine($"selected article - {selectedArticleUrl}");
 
-                                    LastActiveUser[message.Chat.Id] = DateTime.UtcNow;
-                                }
-                                break;
-                            case "🌟✨ donate now! 💖":
-                                {
-                                    var price = new List<LabeledPrice>
-                                    {
-                                        new LabeledPrice("Donate", 1),
-                                    };
-
-                                    var invoice = new SendInvoiceRequest(
-                                        chatId: message.Chat.Id,
-                                        title: "Donate",
-                                        description: "Donate for us",
-                                        payload: "unique_invoice_id", // unique invoice identifier
-                                        providerToken: "provider_token", // your Payoneer API token
-                                        currency: "USD", // currency
-                                        prices: price
-                                    );
-                                    await botClient.SendInvoiceAsync(
-                                        chatId: invoice.ChatId,
-                                        title: invoice.Title,
-                                        description: invoice.Description,
-                                        payload: invoice.Payload,
-                                        providerToken: invoice.ProviderToken,
-                                        currency: invoice.Currency,
-                                        prices: invoice.Prices
-                                    );
-                                }
-                                break;
-                            default:
-                                await botClient.SendTextMessageAsync(message.Chat, "Sorry, I didn't understand that.");
-                                break;
-                        }
+                        // Отправьте результат пользователю
                     }
                 }
             }
@@ -160,7 +107,6 @@ namespace BotKenyaNews
         }
 
 
-
         public static async Task HandleErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
         {
             if (exception is ApiRequestException apiRequestException && apiRequestException.ErrorCode == 403)
@@ -170,7 +116,6 @@ namespace BotKenyaNews
             }
             Console.WriteLine(Newtonsoft.Json.JsonConvert.SerializeObject(exception));
         }
-
         static void Main(string[] args)
         {
             Console.WriteLine("Bot is online");
@@ -189,7 +134,6 @@ namespace BotKenyaNews
                 cancellationToken
             );
             Console.ReadLine();
-
         }
     }
 }
