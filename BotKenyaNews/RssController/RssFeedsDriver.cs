@@ -61,38 +61,6 @@ namespace BotKenyaNews.RssController
             }
         }
 
-        public async Task<Article> GetArticleByUrl(string url)
-        {
-            var httpClient = new HttpClient();
-            var response = await httpClient.GetAsync(url);
-            response.EnsureSuccessStatusCode();
-
-            using (var stream = await response.Content.ReadAsStreamAsync())
-            using (var reader = XmlReader.Create(stream))
-            {
-                var feed = SyndicationFeed.Load(reader);
-
-                var item = feed.Items.FirstOrDefault(i => i.Links[0].Uri.ToString() == url);
-
-                if (item == null)
-                {
-                    return null;
-                }
-
-                var article = new Article
-                {
-                    Title = item.Title.Text,
-                    Url = item.Links[0].Uri.ToString(),
-                    Author = item.Authors.FirstOrDefault()?.Name,
-                    Summary = item.Summary?.Text,
-                    PublishedDate = item.PublishDate.UtcDateTime.ToString()
-                };
-
-                return article;
-            }
-        }
-
-
         private IEnumerable<SyndicationItem> FilterFeedItemsByCategory(IEnumerable<SyndicationItem> items, string category)
         {
             return items.Where(item => item.Categories.Any(cat => cat.Name.ToLowerInvariant() == category.ToLowerInvariant()));

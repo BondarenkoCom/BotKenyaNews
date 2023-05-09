@@ -10,6 +10,8 @@ using BotKenyaNews.RssController;
 using System.Collections.Generic;
 using System.Threading;
 using BotKenyaNews.Models;
+using BotKenyaNews.Parser;
+using BotKenyaNews.Interfaces;
 
 namespace BotKenyaNews
 {
@@ -19,11 +21,16 @@ namespace BotKenyaNews
         static ITelegramBotClient bot = new TelegramBotClient(JsonReader.GetValues().telegramApiToken);
         private static Dictionary<long, DateTime> LastActiveUser = new Dictionary<long, DateTime>();
         private static Dictionary<long, UserState> UserStates = new Dictionary<long, UserState>();
+        private static Dictionary<string, string> articleUrls = new Dictionary<string, string>();
+        private static clientParser _clientParserDriver;
 
-        //Добавить больше value для List<> по теме что за сайт , какой раздел и это надо передать в RssFeedsDriver
+        static Program()
+        {
+            IResponseSorter responseSorter = new ResponseSorter();
+            _clientParserDriver = new clientParser(responseSorter); // Pass the responseSorter instance to the constructor
+        }
+
         private static Dictionary<long, UserChoice> userChoices = new Dictionary<long, UserChoice>();
-        public static Message message = null;
-        public static long chatId = 0;
 
         public class UserState
         {
@@ -35,11 +42,14 @@ namespace BotKenyaNews
         {
             try
             {
+                Message message = null;
+                long chatId = 0;
+
                 Console.WriteLine(Newtonsoft.Json.JsonConvert.SerializeObject(update));
 
                 if (update.Type == Telegram.Bot.Types.Enums.UpdateType.Message)
                 {
-                    message = update.Message;
+                    message = update.Message; // Добавьте эту строку
                     chatId = message.Chat.Id;
 
                     if (message.Text == "/start")
@@ -55,6 +65,8 @@ namespace BotKenyaNews
                 }
                 else if (update.Type == Telegram.Bot.Types.Enums.UpdateType.CallbackQuery)
                 {
+                    chatId = update.CallbackQuery.Message.Chat.Id;
+
                     Console.WriteLine(update.CallbackQuery.Data);
 
                     var categoryKeyboard = InlineKeyBoardCategory.CreateSectionKeyboard();
@@ -75,11 +87,11 @@ namespace BotKenyaNews
                         userChoices[chatId].Category = selectedCategory;
 
                         var sendingGif = await botClient.SendAnimationAsync(
-                                           chatId: message.Chat.Id,
+                                           chatId: chatId,
                                            animation: "https://media.giphy.com/media/lXiRLb0xFzmreM8k8/giphy.gif");
 
                         List<Article> articles = await rssFeedsDriver.GetNews(userChoices[chatId].Site, userChoices[chatId].Category);
-                        var articleKeyboard = InlineKeyBoardArticles.CreateArticleKeyboard(articles);
+                        var articleKeyboard = InlineKeyBoardArticles.CreateArticleKeyboard(articles, articleUrls);
 
                         await botClient.SendTextMessageAsync(
                            chatId: chatId,
@@ -89,13 +101,33 @@ namespace BotKenyaNews
                         await botClient.DeleteMessageAsync(
                                        chatId: sendingGif.Chat.Id,
                                        messageId: sendingGif.MessageId);
+                    }
+                    else if (update.CallbackQuery.Data.StartsWith("article_"))
+                    {
+                        string articleKey = update.CallbackQuery.Data;
+                        if (articleUrls.TryGetValue(articleKey, out string selectedArticleUrl))
+                        {
+                            Console.WriteLine($"selected article - {selectedArticleUrl}");
 
+                            await botClient.SendTextMessageAsync(
+                                chatId: chatId,
+                                text: $"Here is the link to the article you selected:\n{selectedArticleUrl}");
+                            //Тут надо вызывать парсер и читать URL
+                            //Придумать как аккуратно писать текст пользователю
 
-                        Console.WriteLine($"Is choice article - {articleKeyboard}");
-                        //string selectedArticleUrl = update.CallbackQuery.Data.Substring("article_".Length);
-                        //Console.WriteLine($"selected article - {selectedArticleUrl}");
+                            //http://www.africanews.com/2023/05/07/battles-rage-in-khartoum-ahead-of-talks-in-sarabia/
 
-                        // Отправьте результат пользователю
+                            var res = await _clientParserDriver.RunDriverClient(selectedArticleUrl);
+                            Console.WriteLine(res);
+
+                            await botClient.SendTextMessageAsync(
+                               chatId: chatId,
+                               text: $"Here is the article you selected:\n{res}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Article not found for key: {articleKey}");
+                        }
                     }
                 }
             }
