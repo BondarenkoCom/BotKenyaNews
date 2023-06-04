@@ -2,6 +2,6 @@
 {
     public interface IWebDriver
     {
-        Task<string> RunDriverClient(string url);
+        Task<(string, List<string>)> RunDriverClient(string url);
     }
 }

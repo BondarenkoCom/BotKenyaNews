@@ -1,4 +1,5 @@
 ﻿using BotKenyaNews.Interfaces;
+using HtmlAgilityPack;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -15,7 +16,7 @@ namespace BotKenyaNews.Parser
             _responseSorter = responseSorter;
         }
 
-        public async Task<string> RunDriverClient(string url)
+        public async Task<(string, List<string>)> RunDriverClient(string url)
         {
             var uri = new Uri(url);
             var host = uri.Host;
@@ -35,15 +36,36 @@ namespace BotKenyaNews.Parser
                 RequestUri = new Uri(url),
             };
 
+            //using (var response = await client.SendAsync(request))
+            //{
+            //    // Получение содержимого страницы как строки
+            //    string content = await response.Content.ReadAsStringAsync();
+            //
+            //    var responseSorterMethods = _responseSorter.HtmlConverter(content, "article__body");
+            //    return responseSorterMethods.ToString();
+            //}
+            //return null;
+
             using (var response = await client.SendAsync(request))
             {
                 // Получение содержимого страницы как строки
                 string content = await response.Content.ReadAsStringAsync();
 
                 var responseSorterMethods = _responseSorter.HtmlConverter(content, "article__body");
-                return responseSorterMethods.ToString();
+
+                // Создание объекта HtmlDocument
+                var htmlDocument = new HtmlDocument();
+                htmlDocument.LoadHtml(content);
+
+                // Извлечение всех тегов img
+                var imgTags = htmlDocument.DocumentNode.SelectNodes("//img");
+
+                // Извлечение атрибута src из каждого тега img
+                var imageUrls = imgTags?.Select(img => img.GetAttributeValue("src", null)).ToList();
+
+                return (responseSorterMethods.ToString(), imageUrls);
             }
-            return null;
+            return (null, null);
         }
     }
 }

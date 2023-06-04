@@ -42,7 +42,8 @@ namespace BotKenyaNews
         {
             try
             {
-                Message message = null;
+                //тут может быть ошибка
+                Telegram.Bot.Types.Message message = null;
                 long chatId = 0;
 
                 Console.WriteLine(Newtonsoft.Json.JsonConvert.SerializeObject(update));
@@ -109,20 +110,36 @@ namespace BotKenyaNews
                         {
                             Console.WriteLine($"selected article - {selectedArticleUrl}");
 
-                            await botClient.SendTextMessageAsync(
-                                chatId: chatId,
-                                text: $"Here is the link to the article you selected:\n{selectedArticleUrl}");
-                            //Тут надо вызывать парсер и читать URL
-                            //Придумать как аккуратно писать текст пользователю
+                            //тут сделать проверку текста в GPT
+                            GPTDriver gPTDriver = new GPTDriver();
 
+                            //await botClient.SendTextMessageAsync(
+                            //chatId: chatId,
+                            //text: $"Here is the link to the article you selected:\n{contentFormated}");
                             //http://www.africanews.com/2023/05/07/battles-rage-in-khartoum-ahead-of-talks-in-sarabia/
 
+                            var sendingGif = await botClient.SendAnimationAsync(
+                                         chatId: chatId,
+                                         animation: "https://media.giphy.com/media/lXiRLb0xFzmreM8k8/giphy.gif");
+
                             var res = await _clientParserDriver.RunDriverClient(selectedArticleUrl);
-                            Console.WriteLine(res);
+                            var contentFormated = await gPTDriver.RewritePost(res.Item1);
+
+                            Console.WriteLine(contentFormated);
+                            
+                            //TODO нужно подумать как выбирать фотки из статей
+                            foreach (var item in res.Item2)
+                            {
+                                Console.WriteLine($"Image Urls - {item}");
+                            }
+
+                            await botClient.DeleteMessageAsync(
+                                     chatId: sendingGif.Chat.Id,
+                                     messageId: sendingGif.MessageId);
 
                             await botClient.SendTextMessageAsync(
                                chatId: chatId,
-                               text: $"Here is the article you selected:\n{res}");
+                               text: $"Here is the article you selected:\n{contentFormated}");
                         }
                         else
                         {
