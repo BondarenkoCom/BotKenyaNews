@@ -126,20 +126,47 @@ namespace BotKenyaNews
                             var contentFormated = await gPTDriver.RewritePost(res.Item1);
 
                             Console.WriteLine(contentFormated);
-                            
-                            //TODO нужно подумать как выбирать фотки из статей
+
+                            int counter = 0;
+                            string sixthUrl = null;
+
                             foreach (var item in res.Item2)
                             {
-                                Console.WriteLine($"Image Urls - {item}");
+                                Console.WriteLine($"check url - {item}");
+                                if (item.StartsWith("https") && (item.EndsWith(".jpg") || item.EndsWith(".png") 
+                                    || item.EndsWith(".gif")) && !item.EndsWith("_news.jpg"))
+                                {
+                                    sixthUrl = item;
+                                    break; // Выходим из цикла, так как нашли ссылку на изображение
+                                }
                             }
 
                             await botClient.DeleteMessageAsync(
                                      chatId: sendingGif.Chat.Id,
                                      messageId: sendingGif.MessageId);
 
-                            await botClient.SendTextMessageAsync(
-                               chatId: chatId,
-                               text: $"Here is the article you selected:\n{contentFormated}");
+                            try
+                            {
+                                if (sixthUrl != null)
+                                {
+                                    await botClient.SendPhotoAsync(
+                                    chatId: chatId,
+                                    photo: sixthUrl, // URL изображения
+                                    caption: $"Here is the article you selected:\n{contentFormated}\n");
+                                }
+                                //else
+                                //{
+                                //    await botClient.SendTextMessageAsync(
+                                //    chatId: chatId,
+                                //    text: $"Here is the article you selected:\n{contentFormated}\n");
+                                //}
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"url image - {sixthUrl}");
+                            }
+
+
                         }
                         else
                         {
