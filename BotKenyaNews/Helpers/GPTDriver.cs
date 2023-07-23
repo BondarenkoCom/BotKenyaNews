@@ -1,10 +1,5 @@
 ﻿using BotKenyaNews.Models;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net.Http.Json;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace BotKenyaNews.Helpers
 {
@@ -14,7 +9,6 @@ namespace BotKenyaNews.Helpers
         {
             string apiKey = JsonReader.GetValues().openApiKey;
             string endpoint = "https://api.openai.com/v1/chat/completions";
-            //string typeContent = string.Empty;
 
             List<Message> messages = new List<Message>();
             var httpClient = new HttpClient();
@@ -23,7 +17,8 @@ namespace BotKenyaNews.Helpers
 
             var greetingMessage = new Message()
             { Role = "user",
-              Content = "Transform the following news article into a concise, clear, and engaging message, suitable for a Telegram post:" };
+              Content = "Transform the following news article into a concise, clear, and engaging message, suitable for a Telegram post. Please limit the length to 1000 characters:"
+            };
             messages.Add(greetingMessage);
 
             var message = new Message() { Role = "user", Content = contentFromNewsWebSite };
@@ -59,7 +54,7 @@ namespace BotKenyaNews.Helpers
             string formattedResponse =
                 $"\n\n{responseText}\n\n";
 
-            Console.WriteLine($"ChatGPT: {responseText}");
+            //Console.WriteLine($"ChatGPT: {responseText}");
             return formattedResponse;
 
         }

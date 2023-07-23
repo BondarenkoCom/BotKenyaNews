@@ -10,8 +10,8 @@ namespace BotKenyaNews.BotSettings
             {
         new []
         {
-            InlineKeyboardButton.WithCallbackData("last ten news", "category_economy"),
-            InlineKeyboardButton.WithCallbackData("sports", "category_sports"),
+            InlineKeyboardButton.WithCallbackData("last ten news", "category_economy")
+            //InlineKeyboardButton.WithCallbackData("sports", "category_sports"),
         },
     });
         }

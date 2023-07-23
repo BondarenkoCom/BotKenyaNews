@@ -2,13 +2,9 @@
 using Telegram.Bot.Types;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Exceptions;
-using Telegram.Bot.Types.Payments;
-using Telegram.Bot.Requests;
 using BotKenyaNews.Helpers;
 using BotKenyaNews.BotSettings;
 using BotKenyaNews.RssController;
-using System.Collections.Generic;
-using System.Threading;
 using BotKenyaNews.Models;
 using BotKenyaNews.Parser;
 using BotKenyaNews.Interfaces;
@@ -19,15 +15,17 @@ namespace BotKenyaNews
     {
         static int lastUpdateId = 0;
         static ITelegramBotClient bot = new TelegramBotClient(JsonReader.GetValues().telegramApiToken);
-        private static Dictionary<long, DateTime> LastActiveUser = new Dictionary<long, DateTime>();
+        private static Dictionary<long, DateTime> activeUsers = new Dictionary<long, DateTime>();
         private static Dictionary<long, UserState> UserStates = new Dictionary<long, UserState>();
         private static Dictionary<string, string> articleUrls = new Dictionary<string, string>();
+        private static Dictionary<long, HashSet<string>> sentImages = new Dictionary<long, HashSet<string>>();
         private static clientParser _clientParserDriver;
+        private static GenerateLog generateLog = new GenerateLog();
 
         static Program()
         {
             IResponseSorter responseSorter = new ResponseSorter();
-            _clientParserDriver = new clientParser(responseSorter); // Pass the responseSorter instance to the constructor
+            _clientParserDriver = new clientParser(responseSorter);
         }
 
         private static Dictionary<long, UserChoice> userChoices = new Dictionary<long, UserChoice>();
@@ -42,15 +40,33 @@ namespace BotKenyaNews
         {
             try
             {
-                //тут может быть ошибка
+                int activeUsersCount = GetActiveUsersCount(TimeSpan.FromHours(24));
+                string logMessage = generateLog.GenerateLogMessage(activeUsersCount, update);
+                Console.WriteLine(logMessage);
+
                 Telegram.Bot.Types.Message message = null;
                 long chatId = 0;
+                long myChatId = 5686406180;
 
-                Console.WriteLine(Newtonsoft.Json.JsonConvert.SerializeObject(update));
+                string updateJson = Newtonsoft.Json.JsonConvert.SerializeObject(update);
+
+                Console.WriteLine($"Active users in Kenya News {GetActiveUsersCount(TimeSpan.FromHours(24))}");
+
+                try
+                {
+                    await botClient.SendTextMessageAsync(
+                        chatId: myChatId,
+                        text: logMessage
+                    );
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Problem with your chatId - {myChatId} \n error message - {ex.Message}");
+                }
 
                 if (update.Type == Telegram.Bot.Types.Enums.UpdateType.Message)
                 {
-                    message = update.Message; // Добавьте эту строку
+                    message = update.Message;
                     chatId = message.Chat.Id;
 
                     if (message.Text == "/start")
@@ -68,8 +84,6 @@ namespace BotKenyaNews
                 {
                     chatId = update.CallbackQuery.Message.Chat.Id;
 
-                    Console.WriteLine(update.CallbackQuery.Data);
-
                     var categoryKeyboard = InlineKeyBoardCategory.CreateSectionKeyboard();
                     RssFeedsDriver rssFeedsDriver = new RssFeedsDriver();
 
@@ -80,7 +94,6 @@ namespace BotKenyaNews
                             chatId: chatId,
                             text: "Choose category",
                             replyMarkup: categoryKeyboard);
-                        Console.WriteLine($"{categoryKeyboard} is active category");
                     }
                     else if (update.CallbackQuery.Data.StartsWith("category_"))
                     {
@@ -108,15 +121,8 @@ namespace BotKenyaNews
                         string articleKey = update.CallbackQuery.Data;
                         if (articleUrls.TryGetValue(articleKey, out string selectedArticleUrl))
                         {
-                            Console.WriteLine($"selected article - {selectedArticleUrl}");
 
-                            //тут сделать проверку текста в GPT
                             GPTDriver gPTDriver = new GPTDriver();
-
-                            //await botClient.SendTextMessageAsync(
-                            //chatId: chatId,
-                            //text: $"Here is the link to the article you selected:\n{contentFormated}");
-                            //http://www.africanews.com/2023/05/07/battles-rage-in-khartoum-ahead-of-talks-in-sarabia/
 
                             var sendingGif = await botClient.SendAnimationAsync(
                                          chatId: chatId,
@@ -125,19 +131,17 @@ namespace BotKenyaNews
                             var res = await _clientParserDriver.RunDriverClient(selectedArticleUrl);
                             var contentFormated = await gPTDriver.RewritePost(res.Item1);
 
-                            Console.WriteLine(contentFormated);
-
                             int counter = 0;
                             string sixthUrl = null;
 
                             foreach (var item in res.Item2)
                             {
                                 Console.WriteLine($"check url - {item}");
-                                if (item.StartsWith("https") && (item.EndsWith(".jpg") || item.EndsWith(".png") 
+                                if (item.StartsWith("https") && (item.EndsWith(".jpg") || item.EndsWith(".png")
                                     || item.EndsWith(".gif")) && !item.EndsWith("_news.jpg"))
                                 {
                                     sixthUrl = item;
-                                    break; // Выходим из цикла, так как нашли ссылку на изображение
+                                    break;
                                 }
                             }
 
@@ -149,24 +153,40 @@ namespace BotKenyaNews
                             {
                                 if (sixthUrl != null)
                                 {
-                                    await botClient.SendPhotoAsync(
-                                    chatId: chatId,
-                                    photo: sixthUrl, // URL изображения
-                                    caption: $"Here is the article you selected:\n{contentFormated}\n");
+                                    if (!sentImages.ContainsKey(chatId) || !sentImages[chatId].Contains(sixthUrl))
+                                    {
+                                        await botClient.SendPhotoAsync(
+                                            chatId: chatId,
+                                            photo: sixthUrl
+                                        );
+
+                                        if (!sentImages.ContainsKey(chatId))
+                                        {
+                                            sentImages[chatId] = new HashSet<string>();
+                                        }
+                                        sentImages[chatId].Add(sixthUrl);
+                                    }
                                 }
-                                //else
-                                //{
-                                //    await botClient.SendTextMessageAsync(
-                                //    chatId: chatId,
-                                //    text: $"Here is the article you selected:\n{contentFormated}\n");
-                                //}
+
+                                await botClient.SendTextMessageAsync(
+                                       chatId: chatId,
+                                       text: $"Here is the article you selected:\n{contentFormated}\n"
+                                );
+
+                                var sectionKeyboard = InlineKeyBoardSites.CreateNewsKeyboard();
+
+                                await botClient.SendTextMessageAsync(
+                                      chatId: chatId,
+                                      text: "Choose your next news:",
+                                      replyMarkup: sectionKeyboard
+                                  );
+
                             }
                             catch (Exception ex)
                             {
+                                Console.WriteLine($"Error sending message: {ex}");
                                 Console.WriteLine($"url image - {sixthUrl}");
                             }
-
-
                         }
                         else
                         {
@@ -182,6 +202,11 @@ namespace BotKenyaNews
             }
         }
 
+        public static int GetActiveUsersCount(TimeSpan timeSpan)
+        {
+            DateTime now = DateTime.UtcNow;
+            return activeUsers.Count(user => (now - user.Value) <= timeSpan);
+        }
 
         public static async Task HandleErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
         {
@@ -201,7 +226,7 @@ namespace BotKenyaNews
             var cancellationToken = cts.Token;
             var receiverOptions = new ReceiverOptions
             {
-                AllowedUpdates = { }, // receive all update types
+                AllowedUpdates = { },
             };
             bot.StartReceiving(
                 HandleUpdateAsync,
